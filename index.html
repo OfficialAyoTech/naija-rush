@@ -154,7 +154,7 @@ function playAnim(n) {
 }
 if (THREE.GLTFLoader) new THREE.GLTFLoader().load('models/Soldier.glb', gltf => {
   const m = gltf.scene;
-  m.rotation.y = Math.PI; m.scale.setScalar(1.15);
+  m.rotation.y = 0; m.scale.setScalar(1.15); m.scale.setScalar(1.15);
   m.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
   mixer = new THREE.AnimationMixer(m);
   gltf.animations.forEach(c => { actions[c.name] = mixer.clipAction(c); });
