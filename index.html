@@ -16,19 +16,21 @@ h1{font-size:44px;margin:0;letter-spacing:2px;color:var(--gold)}
 h2{font-size:34px;margin:0;color:#f87171}
 p{margin:0;opacity:.9}
 button{font-size:22px;font-weight:700;padding:14px 40px;border:0;border-radius:14px;background:var(--accent);color:#fff}
+.sm{font-size:14px;opacity:.85;font-weight:600}
 </style>
 </head><body>
-<div id="hud"><div><span id="sc">0</span> m</div><div>Best <span id="hi">0</span></div></div>
+<div id="hud"><div>Score <span id="sc">0</span><div class="sm"><span id="ds">0</span> m</div></div><div>&#x1FA99; <span id="cn">0</span></div><div>Best <span id="hi">0</span></div></div>
 <div id="menu" class="panel">
   <h1>NAIJA RUSH</h1>
   <p>Dodge crates, barriers and danfo buses.</p>
-  <p>Swipe or use ← → (or A / D) to change lane.</p>
+  <p>Swipe left/right to change lane, up to jump, down to slide.</p><p>Keys: ← → (A/D) lanes, ↑ (W/Space) jump, ↓ (S) slide.</p><p>Jump low obstacles, slide under signs, dodge buses, grab coins.</p>
   <button id="play">PLAY</button>
 </div>
 <div id="over" class="panel hidden">
   <h2>GAME OVER</h2>
-  <p>Distance: <b id="fs">0</b> m</p>
-  <p>Best: <b id="fb">0</b> m</p>
+  <p>Score: <b id="fs">0</b></p>
+  <p><b id="fd">0</b> m &nbsp;·&nbsp; <b id="fc">0</b> coins</p>
+  <p>Best: <b id="fb">0</b></p>
   <button id="again">RESTART</button>
 </div>
 <script src="vendor/three.min.js"></script>
@@ -154,7 +156,7 @@ function playAnim(n) {
 }
 if (THREE.GLTFLoader) new THREE.GLTFLoader().load('models/Soldier.glb', gltf => {
   const m = gltf.scene;
-  m.rotation.y = 0; m.scale.setScalar(1.15); m.scale.setScalar(1.15);
+  m.rotation.y = 0; m.scale.setScalar(1.15);
   m.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
   mixer = new THREE.AnimationMixer(m);
   gltf.animations.forEach(c => { actions[c.name] = mixer.clipAction(c); });
@@ -168,23 +170,29 @@ const obstacles = [];
 function makeObstacle(type) {
   const g = new THREE.Group();
   if (type === 'crate') {
-    box(1.6, 1.6, 1.6, 0x9a6a3a, 0, 0.8, 0, g);
-    box(1.64, 0.2, 1.64, 0x7c5228, 0, 0.8, 0, g);
-    g.userData = { w: 0.8, d: 0.8 };
+    box(1.4, 1.2, 1.4, 0x9a6a3a, 0, 0.6, 0, g);
+    box(1.44, 0.16, 1.44, 0x7c5228, 0, 0.6, 0, g);
+    g.userData = { w: 0.7, d: 0.7, y0: 0, y1: 1.2 };
   } else if (type === 'barrier') {
     box(2.2, 0.5, 0.4, 0xdc2626, 0, 0.95, 0, g);
     box(0.4, 0.5, 0.42, 0xffffff, -0.6, 0.95, 0, g);
     box(0.4, 0.5, 0.42, 0xffffff, 0.6, 0.95, 0, g);
     box(0.12, 0.9, 0.12, 0x374151, -0.9, 0.45, 0, g);
     box(0.12, 0.9, 0.12, 0x374151, 0.9, 0.45, 0, g);
-    g.userData = { w: 1.1, d: 0.3 };
+    g.userData = { w: 1.1, d: 0.3, y0: 0, y1: 1.2 };
+  } else if (type === 'sign') {
+    box(0.12, 2.2, 0.12, 0x374151, -1.0, 1.1, 0, g);
+    box(0.12, 2.2, 0.12, 0x374151, 1.0, 1.1, 0, g);
+    box(2.2, 0.65, 0.3, 0x2563eb, 0, 1.7, 0, g);
+    box(1.8, 0.2, 0.32, 0xffffff, 0, 1.7, 0, g);
+    g.userData = { w: 1.1, d: 0.3, y0: 1.3, y1: 2.05 };
   } else {
     box(2.0, 1.4, 4.6, 0xfacc15, 0, 1.15, 0, g);
     box(1.9, 0.3, 4.4, 0xfacc15, 0, 2.0, 0, g);
     box(2.02, 0.5, 3.6, 0x1e293b, 0, 1.65, 0, g);
     box(2.03, 0.22, 4.62, 0x111111, 0, 1.0, 0, g);
     box(2.0, 0.4, 4.4, 0x111111, 0, 0.35, 0, g);
-    g.userData = { w: 1.0, d: 2.3 };
+    g.userData = { w: 1.0, d: 2.3, y0: 0, y1: 2.2 };
   }
   return merge(g);
 }
@@ -193,10 +201,15 @@ function spawnRow() {
   const opts = [prevFree - 1, prevFree, prevFree + 1].filter(l => l >= 0 && l <= 2);
   const free = opts[Math.random() * opts.length | 0];
   let blocked = [0, 1, 2].filter(l => l !== free);
-  if (speed < 17 || Math.random() < 0.6) blocked = [blocked[Math.random() * 2 | 0]];
+  if (Math.random() >= Math.min(0.6, Math.max(0, (speed - 16) / 30))) blocked = [blocked[Math.random() * 2 | 0]];
   prevFree = free;
+  for (let k = 0; k < 5; k++) {
+    const c = new THREE.Mesh(COIN_G, COIN_M);
+    c.position.set(LANES[free], 1.0, -115 + k * 2.5);
+    scene.add(c); coinList.push(c);
+  }
   blocked.forEach(l => {
-    const o = makeObstacle(['crate', 'barrier', 'bus'][Math.random() * 3 | 0]);
+    const o = makeObstacle(['crate', 'barrier', 'bus', 'sign'][Math.random() * 4 | 0]);
     o.position.set(LANES[l], 0, -115);
     scene.add(o);
     obstacles.push(o);
@@ -205,6 +218,12 @@ function spawnRow() {
 
 /* ---------- Game state ---------- */
 let state = 'menu', speed = 14, dist = 0, lane = 1, sinceSpawn = 1e9, anim = 0, lastScore = -1;
+let coins = 0, py = 0, vy = 0, slideT = 0, wantSlide = false;
+const coinList = [];
+const COIN_G = new THREE.CylinderGeometry(0.35, 0.35, 0.08, 14).rotateX(Math.PI / 2);
+const COIN_M = new THREE.MeshLambertMaterial({ color: 0xfacc15, emissive: 0x553d00 });
+const score = () => Math.floor(dist) + coins * 10;
+const updScore = () => { $('sc').textContent = score(); };
 let best = 0;
 best = +store.get('naijaRushBest') || 0;
 $('hi').textContent = best;
@@ -212,6 +231,10 @@ $('hi').textContent = best;
 function startGame() {
   obstacles.forEach(o => scene.remove(o));
   obstacles.length = 0;
+  coinList.forEach(c => scene.remove(c));
+  coinList.length = 0;
+  coins = 0; py = 0; vy = 0; slideT = 0; wantSlide = false;
+  $('cn').textContent = 0; $('sc').textContent = 0; $('ds').textContent = 0;
   speed = 14; dist = 0; lane = 1; prevFree = 1; sinceSpawn = 1e9; lastScore = -1;
   runner.position.x = 0;
   playAnim('Run');
@@ -222,7 +245,9 @@ function startGame() {
 function gameOver() {
   state = 'over';
   playAnim('Idle');
-  const s = Math.floor(dist);
+  const s = score();
+  $('fd').textContent = Math.floor(dist);
+  $('fc').textContent = coins;
   if (s > best) {
     best = s;
     store.set('naijaRushBest', best);
@@ -240,13 +265,23 @@ const move = d => { if (state === 'play') lane = Math.max(0, Math.min(2, lane + 
 window.addEventListener('keydown', e => {
   if (e.code === 'ArrowLeft' || e.code === 'KeyA') move(-1);
   else if (e.code === 'ArrowRight' || e.code === 'KeyD') move(1);
-  else if ((e.code === 'Space' || e.code === 'Enter') && state !== 'play') startGame();
+  else if (e.code === 'ArrowUp' || e.code === 'KeyW') jump();
+  else if (e.code === 'ArrowDown' || e.code === 'KeyS') slide();
+  else if (e.code === 'Space' || e.code === 'Enter') { if (state !== 'play') startGame(); else jump(); }
 });
-let sx = 0, sy = 0;
-window.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; });
-window.addEventListener('pointerup', e => {
+function jump() { if (state === 'play' && py <= 0.001) { vy = 11; slideT = 0; wantSlide = false; } }
+function slide() { if (state !== 'play') return; if (py > 0.001) { vy = -18; wantSlide = true; } else slideT = 0.7; }
+// Swipes fire as soon as the finger moves 30px, so controls feel instant
+let sx = 0, sy = 0, fired = true;
+window.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; fired = false; });
+window.addEventListener('pointerup', () => { fired = true; });
+window.addEventListener('pointercancel', () => { fired = true; });
+window.addEventListener('pointermove', e => {
+  if (fired) return;
   const dx = e.clientX - sx, dy = e.clientY - sy;
-  if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? 1 : -1);
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 30) return;
+  fired = true;
+  if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? 1 : -1); else if (dy < 0) jump(); else slide();
 });
 
 /* ---------- Main loop ---------- */
@@ -264,7 +299,7 @@ function loop(now) {
     sinceSpawn += step;
     if (sinceSpawn >= Math.max(18, speed * 1.1)) { spawnRow(); sinceSpawn = 0; }
     const s = Math.floor(dist);
-    if (s !== lastScore) { lastScore = s; $('sc').textContent = s; }
+    if (s !== lastScore) { lastScore = s; $('ds').textContent = s; updScore(); }
   }
   segs.forEach(s => { s.position.z += step; if (s.position.z > 40) s.position.z -= SEG * NSEG; });
   for (let i = obstacles.length - 1; i >= 0; i--) {
@@ -273,20 +308,38 @@ function loop(now) {
     if (o.position.z > 12) { scene.remove(o); obstacles.splice(i, 1); }
   }
 
+  if (state === 'play') {
+    if (py > 0 || vy > 0) {
+      vy -= 30 * dt; py += vy * dt;
+      if (py <= 0) { py = 0; vy = 0; if (wantSlide) { slideT = 0.7; wantSlide = false; } }
+    }
+    if (slideT > 0) slideT -= dt;
+  }
+  runner.position.y = py;
+  runner.scale.y = slideT > 0 ? 0.55 : 1;
+  const top = py + (slideT > 0 ? 0.9 : 1.9);
+  for (let i = coinList.length - 1; i >= 0; i--) {
+    const c = coinList[i];
+    c.position.z += step; c.rotation.y += dt * 4;
+    if (state === 'play' && Math.abs(c.position.z) < 0.8 && Math.abs(c.position.x - runner.position.x) < 0.8 && c.position.y > py - 0.3 && c.position.y < top + 0.3) {
+      scene.remove(c); coinList.splice(i, 1); coins++; $('cn').textContent = coins; updScore();
+    } else if (c.position.z > 8) { scene.remove(c); coinList.splice(i, 1); }
+  }
   runner.position.x += (LANES[lane] - runner.position.x) * Math.min(1, dt * 14);
   if (state !== 'over') {
     anim += dt * (state === 'play' ? speed * 0.6 : 6);
     const sw = Math.sin(anim) * 0.9;
     legL.rotation.x = sw; legR.rotation.x = -sw;
     armL.rotation.x = -sw; armR.rotation.x = sw;
-    runner.position.y = mixer ? 0 : Math.abs(Math.sin(anim)) * 0.08;
+    if (!mixer && py === 0) runner.position.y = Math.abs(Math.sin(anim)) * 0.08;
   }
 
   if (mixer) mixer.update(state === 'over' ? 0 : dt * (state === 'play' ? 0.7 + speed / 40 : 1));
   if (state === 'play') {
     for (const o of obstacles) {
       if (Math.abs(o.position.z) < o.userData.d + 0.25 &&
-          Math.abs(o.position.x - runner.position.x) < o.userData.w + 0.35) { gameOver(); break; }
+          Math.abs(o.position.x - runner.position.x) < o.userData.w + 0.35 &&
+          top > o.userData.y0 + 0.05 && py < o.userData.y1 - 0.15) { gameOver(); break; }
     }
   }
 
