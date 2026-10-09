@@ -17,17 +17,30 @@ h2{font-size:34px;margin:0;color:#f87171}
 p{margin:0;opacity:.9}
 button{font-size:22px;font-weight:700;padding:14px 40px;border:0;border-radius:14px;background:var(--accent);color:#fff}
 .sm{font-size:14px;opacity:.85;font-weight:600}
+.panel{background:radial-gradient(circle at 50% 30%,rgba(0,135,81,.35),rgba(8,12,18,.92))}
+h1{font-size:46px;letter-spacing:3px;text-shadow:0 3px 0 #006b40,0 6px 12px #000}
+.flag{display:flex;width:84px;height:52px;border-radius:8px;overflow:hidden;box-shadow:0 4px 12px #0008}
+.flag i{flex:1;background:#008751}.flag i:nth-child(2){background:#fff}
+.card{background:rgba(0,0,0,.4);border-radius:14px;padding:10px 16px;font-size:14px;line-height:1.55;max-width:330px}
+#hud>div{background:rgba(0,0,0,.38);padding:6px 14px;border-radius:16px}
+#nb{color:var(--gold);font-weight:800;font-size:22px;animation:pulse .8s infinite alternate}
+button{box-shadow:0 5px 0 #0b5f33,0 8px 16px #0008;transition:transform .08s}
+button:active{transform:translateY(3px)}
+@keyframes pulse{to{transform:scale(1.12)}}
 </style>
 </head><body>
 <div id="hud"><div>Score <span id="sc">0</span><div class="sm"><span id="ds">0</span> m</div></div><div>&#x1FA99; <span id="cn">0</span></div><div>Best <span id="hi">0</span></div></div>
 <div id="menu" class="panel">
+  <div class="flag"><i></i><i></i><i></i></div>
   <h1>NAIJA RUSH</h1>
-  <p>Dodge crates, barriers and danfo buses.</p>
-  <p>Swipe left/right to change lane, up to jump, down to slide.</p><p>Keys: ← → (A/D) lanes, ↑ (W/Space) jump, ↓ (S) slide.</p><p>Jump low obstacles, slide under signs, dodge buses, grab coins.</p>
+  <p>Run the streets. Beat your best.</p>
+  <div class="card">Swipe &larr; &rarr; to change lane, &uarr; to jump, &darr; to slide.<br>Keys: arrows / A D W S, Space to jump.<br>Jump low obstacles, slide under signs, dodge buses, grab coins.</div>
+  <p>Best: <b id="mb">0</b></p>
   <button id="play">PLAY</button>
 </div>
 <div id="over" class="panel hidden">
   <h2>GAME OVER</h2>
+  <p id="nb" class="hidden">NEW BEST!</p>
   <p>Score: <b id="fs">0</b></p>
   <p><b id="fd">0</b> m &nbsp;·&nbsp; <b id="fc">0</b> coins</p>
   <p>Best: <b id="fb">0</b></p>
@@ -49,7 +62,9 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9ccfe8);
 scene.fog = new THREE.Fog(0x9ccfe8, 40, 130);
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
-scene.add(new THREE.HemisphereLight(0xffffff, 0x556655, 0.95));
+let baseFov = 60;
+const hemi = new THREE.HemisphereLight(0xffffff, 0x556655, 0.95);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff2cc, 0.8);
 sun.position.set(-10, 20, 10);
 scene.add(sun);
@@ -57,7 +72,7 @@ function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
-  camera.fov = w / h < 1 ? 78 : 60;
+  baseFov = w / h < 1 ? 78 : 60; camera.fov = baseFov;
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
@@ -106,11 +121,11 @@ function buildSegment() {
     box(4, 0.3, SEG, 0x9a9a92, s * 6, 0.05, 0, g);
     box(0.12, 0.02, SEG, 0xffffff, s * 3.9, 0.01, 0, g);
     for (let k = 0; k < 3; k++) {
-      const wx = rnd(5, 8), wz = 11, z = -13 + k * 13;
-      box(wx, rnd(5, 16), wz, PAL[Math.random() * PAL.length | 0], s * (8.5 + wx / 2), 0, z, g)
-        .position.y = 4;
-      const b = g.children[g.children.length - 1];
-      b.position.y = b.scale.y / 2;
+      const wx = rnd(5, 8), wz = 11, z = -13 + k * 13, h = rnd(6, 18);
+      box(wx, h, wz, PAL[Math.random() * PAL.length | 0], s * (8.5 + wx / 2), h / 2, z, g);
+      for (let y = 4.4; y < h - 0.8; y += 2.2) for (let c = -3; c <= 3; c += 2)
+        box(0.08, 0.8, 0.9, Math.random() < 0.25 ? 0xfde68a : 0x3b4a5e, s * 8.46, y, z + c, g);
+      if (Math.random() < 0.6) box(1.5, 1.1, 1.5, 0x111827, s * (8.5 + wx / 2), h + 0.55, z + rnd(-3, 3), g);
       box(1.6, 0.25, wz - 1, AWN[Math.random() * AWN.length | 0], s * 7.7, 3, z, g);
       box(0.1, 0.8, wz - 3, 0xfacc15, s * 8.45, 3.6, z, g);
       box(0.1, 2.2, wz * 0.5, 0x1f2937, s * 8.45, 1.2, z, g);
@@ -120,8 +135,15 @@ function buildSegment() {
       box(1.2, 0.12, 0.12, 0x374151, s * 3.85, 6, z, g);
       box(0.4, 0.15, 0.3, 0xfff3b0, s * 3.3, 5.9, z, g);
     });
+    const pz = rnd(-5, 2);
+    box(0.3, 4, 0.3, 0x8b6b4a, s * 5.2, 2.2, pz, g);
+    for (let a = 0; a < 4; a++) box(3, 0.1, 0.5, 0x15803d, s * 5.2, 4.2, pz, g).rotation.y = a * Math.PI / 4;
+    box(1.4, 0.9, 1.0, 0x8b5e3c, s * 6.2, 0.65, 6, g);
+    box(0.08, 2, 0.08, 0x374151, s * 6.2, 1.2, 6, g);
+    box(2, 0.12, 2, AWN[Math.random() * AWN.length | 0], s * 6.2, 2.2, 6, g);
   });
   [-1.3, 1.3].forEach(x => { for (let i = 0; i < 4; i++) box(0.14, 0.02, 3, 0xffffff, x, 0.01, -15 + i * 10, g); });
+  if (Math.random() < 0.5) for (let x = -3.3; x <= 3.4; x += 1.1) box(0.6, 0.02, 3, 0xe5e7eb, x, 0.015, 0, g);
   return merge(g);
 }
 const segs = [];
@@ -218,7 +240,19 @@ function spawnRow() {
 
 /* ---------- Game state ---------- */
 let state = 'menu', speed = 14, dist = 0, lane = 1, sinceSpawn = 1e9, anim = 0, lastScore = -1;
-let coins = 0, py = 0, vy = 0, slideT = 0, wantSlide = false;
+let coins = 0, py = 0, vy = 0, slideT = 0, wantSlide = false, slideK = 0, shake = 0;
+const popList = [];
+const SKY_A = new THREE.Color(0x9ccfe8), SKY_B = new THREE.Color(0xf4b183), SUN_A = new THREE.Color(0xfff2cc), SUN_B = new THREE.Color(0xffa45c);
+function updSky() { // day slowly turns to golden hour and back
+  const p = (1 - Math.cos(dist / 450)) / 2;
+  scene.background.copy(SKY_A).lerp(SKY_B, p * 0.85);
+  scene.fog.color.copy(scene.background);
+  sun.color.copy(SUN_A).lerp(SUN_B, p);
+  sun.intensity = 0.8 - 0.2 * p; hemi.intensity = 0.95 - 0.2 * p;
+}
+const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.6, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
+shadow.position.y = 0.03;
+scene.add(shadow);
 const coinList = [];
 const COIN_G = new THREE.CylinderGeometry(0.35, 0.35, 0.08, 14).rotateX(Math.PI / 2);
 const COIN_M = new THREE.MeshLambertMaterial({ color: 0xfacc15, emissive: 0x553d00 });
@@ -227,6 +261,7 @@ const updScore = () => { $('sc').textContent = score(); };
 let best = 0;
 best = +store.get('naijaRushBest') || 0;
 $('hi').textContent = best;
+$('mb').textContent = best;
 
 function startGame() {
   obstacles.forEach(o => scene.remove(o));
@@ -238,6 +273,7 @@ function startGame() {
   speed = 14; dist = 0; lane = 1; prevFree = 1; sinceSpawn = 1e9; lastScore = -1;
   runner.position.x = 0;
   playAnim('Run');
+  popList.forEach(p => scene.remove(p.m)); popList.length = 0; shake = 0; updSky();
   $('menu').classList.add('hidden');
   $('over').classList.add('hidden');
   state = 'play';
@@ -248,11 +284,15 @@ function gameOver() {
   const s = score();
   $('fd').textContent = Math.floor(dist);
   $('fc').textContent = coins;
-  if (s > best) {
+  const isNew = s > best;
+  $('nb').classList[isNew ? 'remove' : 'add']('hidden');
+  shake = 0.6;
+  if (isNew) {
     best = s;
     store.set('naijaRushBest', best);
   }
   $('hi').textContent = best;
+  $('mb').textContent = best;
   $('fs').textContent = s;
   $('fb').textContent = best;
   $('over').classList.remove('hidden');
@@ -296,6 +336,7 @@ function loop(now) {
   if (state === 'play') {
     speed = Math.min(36, speed + 0.25 * dt);
     dist += step;
+    updSky();
     sinceSpawn += step;
     if (sinceSpawn >= Math.max(18, speed * 1.1)) { spawnRow(); sinceSpawn = 0; }
     const s = Math.floor(dist);
@@ -316,16 +357,26 @@ function loop(now) {
     if (slideT > 0) slideT -= dt;
   }
   runner.position.y = py;
-  runner.scale.y = slideT > 0 ? 0.55 : 1;
+  slideK += ((slideT > 0 ? 1 : 0) - slideK) * Math.min(1, dt * 18);
+  runner.scale.y = 1 - 0.15 * slideK;
+  runner.rotation.x = 1.1 * slideK;
+  shadow.position.x = runner.position.x;
+  shadow.scale.setScalar(1 / (1 + py * 0.7));
   const top = py + (slideT > 0 ? 0.9 : 1.9);
   for (let i = coinList.length - 1; i >= 0; i--) {
     const c = coinList[i];
     c.position.z += step; c.rotation.y += dt * 4;
     if (state === 'play' && Math.abs(c.position.z) < 0.8 && Math.abs(c.position.x - runner.position.x) < 0.8 && c.position.y > py - 0.3 && c.position.y < top + 0.3) {
-      scene.remove(c); coinList.splice(i, 1); coins++; $('cn').textContent = coins; updScore();
+      coinList.splice(i, 1); popList.push({ m: c, t: 0 }); coins++; $('cn').textContent = coins; updScore();
     } else if (c.position.z > 8) { scene.remove(c); coinList.splice(i, 1); }
   }
+  for (let i = popList.length - 1; i >= 0; i--) {
+    const p = popList[i];
+    p.t += dt; p.m.position.y += dt * 3; p.m.position.z += step; p.m.scale.setScalar(Math.max(0.01, 1 - p.t * 5));
+    if (p.t > 0.2) { scene.remove(p.m); popList.splice(i, 1); }
+  }
   runner.position.x += (LANES[lane] - runner.position.x) * Math.min(1, dt * 14);
+  runner.rotation.z = -(LANES[lane] - runner.position.x) * 0.18;
   if (state !== 'over') {
     anim += dt * (state === 'play' ? speed * 0.6 : 6);
     const sw = Math.sin(anim) * 0.9;
@@ -334,7 +385,7 @@ function loop(now) {
     if (!mixer && py === 0) runner.position.y = Math.abs(Math.sin(anim)) * 0.08;
   }
 
-  if (mixer) mixer.update(state === 'over' ? 0 : dt * (state === 'play' ? 0.7 + speed / 40 : 1));
+  if (mixer) mixer.update(state === 'over' ? 0 : dt * (state === 'play' ? (0.7 + speed / 40) * (py > 0 ? 0.25 : 1) : 1));
   if (state === 'play') {
     for (const o of obstacles) {
       if (Math.abs(o.position.z) < o.userData.d + 0.25 &&
@@ -345,7 +396,11 @@ function loop(now) {
 
   camera.position.x += (runner.position.x * 0.55 - camera.position.x) * Math.min(1, dt * 6);
   camera.position.y = 4.3; camera.position.z = 8.2;
+  camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake;
+  shake = Math.max(0, shake - dt * 1.6);
   camera.lookAt(runner.position.x * 0.4, 1.4, -10);
+  const tf = baseFov + (state === 'play' ? (speed - 14) * 0.25 : 0);
+  if (Math.abs(tf - camera.fov) > 0.05) { camera.fov += (tf - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
   renderer.render(scene, camera);
   if (window.__fps) window.__fps();
 }
