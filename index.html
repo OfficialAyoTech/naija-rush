@@ -27,9 +27,20 @@ h1{font-size:46px;letter-spacing:3px;text-shadow:0 3px 0 #006b40,0 6px 12px #000
 button{box-shadow:0 5px 0 #0b5f33,0 8px 16px #0008;transition:transform .08s}
 button:active{transform:translateY(3px)}
 @keyframes pulse{to{transform:scale(1.12)}}
+#ctl{position:fixed;right:16px;top:calc(env(safe-area-inset-top,0px) + 64px);display:flex;flex-direction:column;gap:8px;z-index:10}
+.ic{width:46px;height:46px;padding:0;font-size:20px;border-radius:50%;background:rgba(0,0,0,.45);box-shadow:none}
+.alt{background:#334155;font-size:18px;padding:10px 28px;box-shadow:0 4px 0 #1e293b}
 </style>
 </head><body>
 <div id="hud"><div>Score <span id="sc">0</span><div class="sm"><span id="ds">0</span> m</div></div><div>&#x1FA99; <span id="cn">0</span></div><div>Best <span id="hi">0</span></div></div>
+<div id="ctl"><button id="pz" class="ic" style="display:none">&#9208;</button><button id="mu" class="ic">&#128266;</button></div>
+<div id="pause" class="panel hidden">
+  <h2 style="color:var(--gold)">PAUSED</h2>
+  <button id="res">RESUME</button>
+  <button id="rst" class="alt">RESTART</button>
+  <button id="sf" class="alt">Sound: On</button>
+  <button id="ms" class="alt">Music: On</button>
+</div>
 <div id="menu" class="panel">
   <div class="flag"><i></i><i></i><i></i></div>
   <h1>NAIJA RUSH</h1>
@@ -94,6 +105,43 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 const store = (() => { const mem = {}; return {
   get(k) { try { const v = localStorage.getItem(k); if (v !== null) return v; } catch (e) {} return k in mem ? mem[k] : null; },
   set(k, v) { mem[k] = String(v); try { localStorage.setItem(k, v); } catch (e) {} } }; })();
+let pr = Math.min(window.devicePixelRatio || 1, +store.get('nrPR') || 1.5);
+renderer.setPixelRatio(pr); resize();
+// Sound: all generated with WebAudio (no audio files, no licensing). Starts after the first tap/key.
+const audio = (() => {
+  let ac = null, mt = null, n = 0;
+  const on = { sfx: store.get('nrSfx') !== '0', mus: store.get('nrMus') !== '0' };
+  const unlock = () => {
+    if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+    if (ac && ac.state === 'suspended') ac.resume();
+    return ac;
+  };
+  function tone(f, d, type, vol, to) {
+    const a = unlock(); if (!a) return;
+    const t = a.currentTime, o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (to) o.frequency.exponentialRampToValueAtTime(to, t + d);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + d);
+    o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + d + 0.02);
+  }
+  const sfx = (f, d, type, vol, to) => { if (on.sfx) tone(f, d, type, vol, to); };
+  const BASS = [110, 110, 165, 110, 131, 131, 196, 131], LEAD = [440, 0, 523, 587, 0, 523, 440, 392];
+  function beat() {
+    const i = n++ % 16;
+    if (!on.mus) return;
+    if (i % 2 === 0) tone(BASS[(i >> 1) & 7], 0.22, 'triangle', 0.09);
+    if (i % 4 !== 1 && LEAD[i % 8]) tone(LEAD[i % 8], 0.12, 'square', 0.02);
+  }
+  return {
+    on, unlock,
+    coin: () => sfx(880, 0.12, 'square', 0.07, 1320), jump: () => sfx(300, 0.18, 'sine', 0.15, 700),
+    slide: () => sfx(500, 0.22, 'sawtooth', 0.05, 150), crash: () => sfx(160, 0.5, 'sawtooth', 0.2, 40),
+    lane: () => sfx(420, 0.05, 'triangle', 0.05),
+    musicStart() { unlock(); if (!mt) mt = setInterval(beat, 200); },
+    musicStop() { clearInterval(mt); mt = null; },
+    set(k, v) { on[k] = v; store.set(k === 'sfx' ? 'nrSfx' : 'nrMus', v ? '1' : '0'); }
+  };
+})();
 // Merge a group of coloured boxes into ONE mesh (1 draw call instead of dozens)
 const VCMAT = new THREE.MeshLambertMaterial({ vertexColors: true });
 function merge(g) {
@@ -189,7 +237,7 @@ if (THREE.GLTFLoader) new THREE.GLTFLoader().load('models/Soldier.glb', gltf => 
 
 /* ---------- Obstacles ---------- */
 const obstacles = [];
-function makeObstacle(type) {
+function buildObstacle(type) {
   const g = new THREE.Group();
   if (type === 'crate') {
     box(1.4, 1.2, 1.4, 0x9a6a3a, 0, 0.6, 0, g);
@@ -218,6 +266,9 @@ function makeObstacle(type) {
   }
   return merge(g);
 }
+// Build each obstacle type once, then clone (shares geometry: no per-spawn garbage or GPU uploads)
+const OBS = {};
+const makeObstacle = type => (OBS[type] || (OBS[type] = buildObstacle(type))).clone();
 let prevFree = 1;
 function spawnRow() {
   const opts = [prevFree - 1, prevFree, prevFree + 1].filter(l => l >= 0 && l <= 2);
@@ -263,6 +314,14 @@ best = +store.get('naijaRushBest') || 0;
 $('hi').textContent = best;
 $('mb').textContent = best;
 
+function syncUI() {
+  $('pz').style.display = (state === 'play' || state === 'pause') ? '' : 'none';
+  $('mu').textContent = (audio.on.sfx || audio.on.mus) ? '\u{1F50A}' : '\u{1F507}';
+  $('sf').textContent = 'Sound: ' + (audio.on.sfx ? 'On' : 'Off');
+  $('ms').textContent = 'Music: ' + (audio.on.mus ? 'On' : 'Off');
+}
+function pauseGame() { if (state !== 'play') return; state = 'pause'; audio.musicStop(); $('pause').classList.remove('hidden'); syncUI(); }
+function resumeGame() { if (state !== 'pause') return; state = 'play'; $('pause').classList.add('hidden'); audio.musicStart(); syncUI(); }
 function startGame() {
   obstacles.forEach(o => scene.remove(o));
   obstacles.length = 0;
@@ -276,10 +335,14 @@ function startGame() {
   popList.forEach(p => scene.remove(p.m)); popList.length = 0; shake = 0; updSky();
   $('menu').classList.add('hidden');
   $('over').classList.add('hidden');
+  $('pause').classList.add('hidden');
   state = 'play';
+  audio.musicStart();
+  syncUI();
 }
 function gameOver() {
   state = 'over';
+  audio.crash(); audio.musicStop();
   playAnim('Idle');
   const s = score();
   $('fd').textContent = Math.floor(dist);
@@ -296,21 +359,32 @@ function gameOver() {
   $('fs').textContent = s;
   $('fb').textContent = best;
   $('over').classList.remove('hidden');
+  syncUI();
 }
 $('play').addEventListener('click', startGame);
 $('again').addEventListener('click', startGame);
+$('res').addEventListener('click', resumeGame);
+$('rst').addEventListener('click', startGame);
+$('pz').addEventListener('click', () => (state === 'pause' ? resumeGame() : pauseGame()));
+$('mu').addEventListener('click', () => { const v = !(audio.on.sfx || audio.on.mus); audio.set('sfx', v); audio.set('mus', v); audio.unlock(); syncUI(); });
+$('sf').addEventListener('click', () => { audio.set('sfx', !audio.on.sfx); syncUI(); });
+$('ms').addEventListener('click', () => { audio.set('mus', !audio.on.mus); syncUI(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
+window.addEventListener('blur', pauseGame);
+syncUI();
 
 /* ---------- Input ---------- */
-const move = d => { if (state === 'play') lane = Math.max(0, Math.min(2, lane + d)); };
+const move = d => { if (state === 'play') { const n = Math.max(0, Math.min(2, lane + d)); if (n !== lane) { lane = n; audio.lane(); } } };
 window.addEventListener('keydown', e => {
   if (e.code === 'ArrowLeft' || e.code === 'KeyA') move(-1);
   else if (e.code === 'ArrowRight' || e.code === 'KeyD') move(1);
   else if (e.code === 'ArrowUp' || e.code === 'KeyW') jump();
   else if (e.code === 'ArrowDown' || e.code === 'KeyS') slide();
-  else if (e.code === 'Space' || e.code === 'Enter') { if (state !== 'play') startGame(); else jump(); }
+  else if (e.code === 'KeyP' || e.code === 'Escape') { if (state === 'pause') resumeGame(); else pauseGame(); }
+  else if (e.code === 'Space' || e.code === 'Enter') { if (state === 'pause') resumeGame(); else if (state !== 'play') startGame(); else jump(); }
 });
-function jump() { if (state === 'play' && py <= 0.001) { vy = 11; slideT = 0; wantSlide = false; } }
-function slide() { if (state !== 'play') return; if (py > 0.001) { vy = -18; wantSlide = true; } else slideT = 0.7; }
+function jump() { if (state === 'play' && py <= 0.001) { vy = 11; slideT = 0; wantSlide = false; audio.jump(); } }
+function slide() { if (state !== 'play') return; if (py > 0.001) { vy = -18; wantSlide = true; } else slideT = 0.7; audio.slide(); }
 // Swipes fire as soon as the finger moves 30px, so controls feel instant
 let sx = 0, sy = 0, fired = true;
 window.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; fired = false; });
@@ -325,11 +399,16 @@ window.addEventListener('pointermove', e => {
 });
 
 /* ---------- Main loop ---------- */
-let last = performance.now();
+let last = performance.now(), fAcc = 0, fN = 0;
 function loop(now) {
   requestAnimationFrame(loop);
-  const dt = Math.min((now - last) / 1000, 0.05);
+  const raw = (now - last) / 1000, dt = Math.min(raw, 0.05);
   last = now;
+  if (state === 'play' && raw < 0.5) { fAcc += raw; fN++; }
+  if (fAcc > 2.5) { // adaptive quality: lower resolution if average FPS < 40
+    if (fN / fAcc < 40 && pr > 0.75) { pr = Math.max(0.75, pr - 0.25); renderer.setPixelRatio(pr); store.set('nrPR', pr); resize(); }
+    fAcc = 0; fN = 0;
+  }
   const v = state === 'play' ? speed : state === 'menu' ? 6 : 0;
   const step = v * dt;
 
@@ -367,7 +446,7 @@ function loop(now) {
     const c = coinList[i];
     c.position.z += step; c.rotation.y += dt * 4;
     if (state === 'play' && Math.abs(c.position.z) < 0.8 && Math.abs(c.position.x - runner.position.x) < 0.8 && c.position.y > py - 0.3 && c.position.y < top + 0.3) {
-      coinList.splice(i, 1); popList.push({ m: c, t: 0 }); coins++; $('cn').textContent = coins; updScore();
+      coinList.splice(i, 1); popList.push({ m: c, t: 0 }); coins++; audio.coin(); $('cn').textContent = coins; updScore();
     } else if (c.position.z > 8) { scene.remove(c); coinList.splice(i, 1); }
   }
   for (let i = popList.length - 1; i >= 0; i--) {
@@ -377,7 +456,7 @@ function loop(now) {
   }
   runner.position.x += (LANES[lane] - runner.position.x) * Math.min(1, dt * 14);
   runner.rotation.z = -(LANES[lane] - runner.position.x) * 0.18;
-  if (state !== 'over') {
+  if (state === 'play' || state === 'menu') {
     anim += dt * (state === 'play' ? speed * 0.6 : 6);
     const sw = Math.sin(anim) * 0.9;
     legL.rotation.x = sw; legR.rotation.x = -sw;
@@ -385,7 +464,7 @@ function loop(now) {
     if (!mixer && py === 0) runner.position.y = Math.abs(Math.sin(anim)) * 0.08;
   }
 
-  if (mixer) mixer.update(state === 'over' ? 0 : dt * (state === 'play' ? (0.7 + speed / 40) * (py > 0 ? 0.25 : 1) : 1));
+  if (mixer) mixer.update(state === 'over' || state === 'pause' ? 0 : dt * (state === 'play' ? (0.7 + speed / 40) * (py > 0 ? 0.25 : 1) : 1));
   if (state === 'play') {
     for (const o of obstacles) {
       if (Math.abs(o.position.z) < o.userData.d + 0.25 &&
