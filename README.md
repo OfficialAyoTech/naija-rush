@@ -13,7 +13,7 @@ index.html, sw.js, manifest.webmanifest, icon-192.png, icon-512.png, vendor/ (3 
 - Cloudflare Pages: connect the repo, no build command, output directory `/`.
 
 ## Updating after you edit any file
-Change `V` in sw.js (e.g. naija-rush-v9 -> v10), upload the files, hard-refresh (Ctrl+Shift+R); phones may need two reloads.
+Change `V` in sw.js (e.g. naija-rush-v10 -> v11), upload the files, hard-refresh (Ctrl+Shift+R); phones may need two reloads.
 
 ## Controls
 Swipe or arrows: lanes. Up/W/Space jump. Down/S slide. P/Esc pause. Add `?fps=1` to the URL for an FPS overlay and an end-of-run performance report. Difficulty (Easy/Normal/Hard) and Quality (Auto/Low/High) are on the menu; tuning numbers are in the PRESETS block in index.html.
@@ -26,3 +26,6 @@ Swipe or arrows: lanes. Up/W/Space jump. Down/S slide. P/Esc pause. Add `?fps=1`
 ## Power-ups and daily missions
 - Magnet (8 s) pulls nearby coins in. Shield absorbs one crash. Both appear occasionally in the free lane.
 - 3 daily missions, the same for everyone each day (seeded by the date). Progress and streak are saved on the device and counted when a run ends.
+
+## Visuals
+Road and building textures are drawn in code at start-up (no image files). Seven themed road segments (market, towers, houses, footbridge) are swapped as you run. If a browser lacks canvas, the game falls back to flat colours.
