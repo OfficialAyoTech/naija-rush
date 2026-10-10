@@ -33,12 +33,16 @@ button:active{transform:translateY(3px)}
 .row{display:flex;gap:8px}
 .sm2{font-size:15px!important;padding:8px 16px!important}
 .on{background:var(--accent)!important;box-shadow:0 4px 0 #0b5f33!important}
+.panel{overflow-y:auto;justify-content:safe center}
+#daily,#dg{white-space:pre-line}
+#pw{position:fixed;left:16px;top:calc(env(safe-area-inset-top,0px) + 78px);font-weight:700;font-size:18px;background:rgba(0,0,0,.38);padding:4px 12px;border-radius:14px;text-shadow:0 2px 4px #000;pointer-events:none}
 #ctl{position:fixed;right:16px;top:calc(env(safe-area-inset-top,0px) + 64px);display:flex;flex-direction:column;gap:8px;z-index:10}
 .ic{width:46px;height:46px;padding:0;font-size:20px;border-radius:50%;background:rgba(0,0,0,.45);box-shadow:none}
 .alt{background:#334155;font-size:18px;padding:10px 28px;box-shadow:0 4px 0 #1e293b}
 </style>
 </head><body>
 <div id="hud"><div>Score <span id="sc">0</span><div class="sm"><span id="ds">0</span> m</div></div><div>&#x1FA99; <span id="cn">0</span></div><div>Best <span id="hi">0</span></div></div>
+<div id="pw" style="display:none"></div>
 <div id="ctl"><button id="pz" class="ic" style="display:none">&#9208;</button><button id="mu" class="ic">&#128266;</button></div>
 <div id="pause" class="panel hidden">
   <h2 style="color:var(--gold)">PAUSED</h2>
@@ -52,9 +56,10 @@ button:active{transform:translateY(3px)}
   <div class="flag"><i></i><i></i><i></i></div>
   <h1>NAIJA RUSH</h1>
   <p>Run the streets. Beat your best.</p>
-  <div class="card">Swipe &larr; &rarr; to change lane, &uarr; to jump, &darr; to slide.<br>Keys: arrows / A D W S, Space to jump.<br>Jump low obstacles, slide under signs, dodge buses, grab coins.</div>
+  <div class="card">Swipe &larr; &rarr; to change lane, &uarr; to jump, &darr; to slide.<br>Keys: arrows / A D W S, Space to jump.<br>Jump low obstacles, slide under signs, dodge buses, grab coins, magnets and shields.</div>
   <div class="row"><button id="df-easy" class="alt sm2">Easy</button><button id="df-normal" class="alt sm2">Normal</button><button id="df-hard" class="alt sm2">Hard</button></div>
   <button id="qb" class="alt sm2">Quality: Auto</button>
+  <div class="card" id="daily"></div>
   <p>Best: <b id="mb">0</b></p>
   <button id="play">PLAY</button>
 </div>
@@ -64,6 +69,7 @@ button:active{transform:translateY(3px)}
   <p>Score: <b id="fs">0</b></p>
   <p><b id="fd">0</b> m &nbsp;·&nbsp; <b id="fc">0</b> coins</p>
   <p>Best: <b id="fb">0</b></p>
+  <p id="dg" class="sm"></p>
   <p id="rep" class="sm"></p>
   <button id="again">RESTART</button>
   <button id="tomenu" class="alt">MENU</button>
@@ -159,7 +165,7 @@ const audio = (() => {
     on, unlock,
     coin: () => sfx(880, 0.12, 'square', 0.07, 1320), jump: () => sfx(300, 0.18, 'sine', 0.15, 700),
     slide: () => sfx(500, 0.22, 'sawtooth', 0.05, 150), crash: () => sfx(160, 0.5, 'sawtooth', 0.2, 40),
-    lane: () => sfx(420, 0.05, 'triangle', 0.05),
+    lane: () => sfx(420, 0.05, 'triangle', 0.05), power: () => sfx(600, 0.25, 'sine', 0.12, 1200),
     musicStart() { unlock(); if (!mt) mt = setInterval(beat, 200); },
     musicStop() { clearInterval(mt); mt = null; },
     set(k, v) { on[k] = v; store.set(k === 'sfx' ? 'nrSfx' : 'nrMus', v ? '1' : '0'); }
@@ -304,6 +310,13 @@ function spawnRow() {
     c.position.set(LANES[free], 1.0, -115 + k * 2.5);
     scene.add(c); coinList.push(c);
   }
+  if (++rowsSincePw >= 3 && Math.random() < 0.22) { // occasional power-up in the free lane
+    rowsSincePw = 0;
+    const type = Math.random() < 0.5 ? 'magnet' : 'shield';
+    const m = new THREE.Mesh(type === 'magnet' ? MAG_G : SHD_G, type === 'magnet' ? MAG_M : SHD_M);
+    m.userData = { type }; m.position.set(LANES[free], 1.1, -100);
+    scene.add(m); pwList.push(m);
+  }
   blocked.forEach(l => {
     const o = makeObstacle(['crate', 'barrier', 'bus', 'sign'][Math.random() * 4 | 0]);
     o.position.set(LANES[l], 0, -115);
@@ -326,7 +339,10 @@ const bestKey = () => diff === 'normal' ? 'naijaRushBest' : 'naijaRushBest_' + d
 const fpsMode = /[?&]fps=1/.test(location.search);
 let state = 'menu', speed = CFG.v0, dist = 0, lane = 1, sinceSpawn = 1e9, anim = 0, lastScore = -1;
 let coins = 0, py = 0, vy = 0, slideT = 0, wantSlide = false, slideK = 0, shake = 0;
-const popList = [];
+let magnetT = 0, shieldOn = false, invT = 0, runJ = 0, runS = 0, runP = 0, rowsSincePw = 0, lastPw = null;
+const pwList = [], popList = [];
+const MAG_G = new THREE.TorusGeometry(0.32, 0.12, 8, 14), MAG_M = new THREE.MeshLambertMaterial({ color: 0xef4444, emissive: 0x5c0b0b });
+const SHD_G = new THREE.IcosahedronGeometry(0.45, 0), SHD_M = new THREE.MeshLambertMaterial({ color: 0x38bdf8, emissive: 0x0b3a5c });
 const SKY_A = new THREE.Color(0x9ccfe8), SKY_B = new THREE.Color(0xf4b183), SUN_A = new THREE.Color(0xfff2cc), SUN_B = new THREE.Color(0xffa45c);
 function updSky() { // day slowly turns to golden hour and back
   const p = (1 - Math.cos(dist / 450)) / 2;
@@ -338,6 +354,9 @@ function updSky() { // day slowly turns to golden hour and back
 const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.6, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
 shadow.position.y = 0.03;
 scene.add(shadow);
+const bubble = new THREE.Mesh(new THREE.SphereGeometry(1.25, 14, 10), new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.25, depthWrite: false }));
+bubble.visible = false;
+scene.add(bubble);
 const coinList = [];
 const COIN_G = new THREE.CylinderGeometry(0.35, 0.35, 0.08, 14).rotateX(Math.PI / 2);
 const COIN_M = new THREE.MeshLambertMaterial({ color: 0xfacc15, emissive: 0x553d00 });
@@ -348,12 +367,67 @@ best = +store.get(bestKey()) || 0;
 $('hi').textContent = best;
 $('mb').textContent = best;
 
+// ---- Daily missions: same 3 for everyone each day (seeded by the date); progress is saved on this device
+const POOL = [
+  { id: 'dist', k: 'dist', max: true, g: [400, 600, 800], t: g => 'Run ' + g + ' m in one run' },
+  { id: 'coinr', k: 'coins', max: true, g: [25, 40, 60], t: g => 'Collect ' + g + ' coins in one run' },
+  { id: 'coint', k: 'coins', max: false, g: [100, 150, 250], t: g => 'Collect ' + g + ' coins today' },
+  { id: 'jump', k: 'jumps', max: false, g: [20, 30, 45], t: g => 'Jump ' + g + ' times' },
+  { id: 'slide', k: 'slides', max: false, g: [10, 15, 25], t: g => 'Slide ' + g + ' times' },
+  { id: 'power', k: 'power', max: false, g: [2, 3, 4], t: g => 'Pick up ' + g + ' power-ups' },
+  { id: 'score', k: 'score', max: true, g: [1000, 1800, 2800], t: g => 'Score ' + g + ' in one run' }
+];
+const dayStr = d => { d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+function seeded(str) {
+  let h = 1779033703;
+  for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = h << 13 | h >>> 19; }
+  return () => { h = Math.imul(h ^ h >>> 16, 2246822507); h = Math.imul(h ^ h >>> 13, 3266489909); return ((h ^= h >>> 16) >>> 0) / 4294967296; };
+}
+function todays() {
+  const r = seeded('naija-rush-' + dayStr()), idx = POOL.map((_, i) => i);
+  for (let i = idx.length - 1; i > 0; i--) { const j = r() * (i + 1) | 0; const t = idx[i]; idx[i] = idx[j]; idx[j] = t; }
+  return idx.slice(0, 3).map(i => ({ p: POOL[i], goal: POOL[i].g[r() * 3 | 0] }));
+}
+function loadDaily() {
+  let v = null; try { v = JSON.parse(store.get('nrDaily')); } catch (e) {}
+  return v && v.date === dayStr() ? v : { date: dayStr(), prog: {}, done: {} };
+}
+function streakNow() {
+  let s = null; try { s = JSON.parse(store.get('nrStreak')); } catch (e) {}
+  if (!s) return 0;
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  return s.last === dayStr() || s.last === dayStr(y) ? s.n : 0;
+}
+function bumpStreak() {
+  let s = null; try { s = JSON.parse(store.get('nrStreak')); } catch (e) {}
+  s = s || { last: '', n: 0 };
+  if (s.last === dayStr()) return;
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  s.n = s.last === dayStr(y) ? s.n + 1 : 1; s.last = dayStr();
+  store.set('nrStreak', JSON.stringify(s));
+}
+function dailyCommit(run) { // call once per finished run; returns texts of newly completed missions
+  const dl = loadDaily(), fresh = [], ms = todays();
+  ms.forEach(m => {
+    const id = m.p.id, v = run[m.p.k] || 0;
+    dl.prog[id] = m.p.max ? Math.max(dl.prog[id] || 0, v) : (dl.prog[id] || 0) + v;
+    if (!dl.done[id] && dl.prog[id] >= m.goal) { dl.done[id] = 1; fresh.push(m.p.t(m.goal)); }
+  });
+  store.set('nrDaily', JSON.stringify(dl));
+  if (fresh.length && ms.every(m => dl.done[m.p.id])) { bumpStreak(); fresh.push('ALL DAILY MISSIONS DONE!'); }
+  return fresh;
+}
+function dailyText() {
+  const dl = loadDaily(), n = streakNow();
+  return 'DAILY MISSIONS\n' + todays().map(m => (dl.done[m.p.id] ? '\u2713 ' : '\u2022 ') + m.p.t(m.goal) + ' (' + Math.min(dl.prog[m.p.id] || 0, m.goal) + '/' + m.goal + ')').join('\n') + (n ? '\nStreak: ' + n + ' day' + (n > 1 ? 's' : '') : '');
+}
 function syncUI() {
   $('pz').style.display = (state === 'play' || state === 'pause') ? '' : 'none';
   $('mu').textContent = (audio.on.sfx || audio.on.mus) ? '\u{1F50A}' : '\u{1F507}';
   $('sf').textContent = 'Sound: ' + (audio.on.sfx ? 'On' : 'Off');
   $('ms').textContent = 'Music: ' + (audio.on.mus ? 'On' : 'Off');
   $('qb').textContent = $('qb2').textContent = 'Quality: ' + QN[quality];
+  $('daily').textContent = dailyText();
   ['easy', 'normal', 'hard'].forEach(k => $('df-' + k).classList[k === diff ? 'add' : 'remove']('on'));
 }
 function setDiff(k) {
@@ -371,6 +445,8 @@ function startGame() {
   coinList.length = 0;
   coins = 0; py = 0; vy = 0; slideT = 0; wantSlide = false;
   sT = sN = wT = wN = 0; wmin = 999;
+  magnetT = 0; shieldOn = false; invT = 0; runJ = runS = runP = 0; rowsSincePw = 0; lastPw = null;
+  pwList.forEach(m => scene.remove(m)); pwList.length = 0;
   $('cn').textContent = 0; $('sc').textContent = 0; $('ds').textContent = 0;
   speed = CFG.v0; dist = 0; lane = 1; prevFree = 1; sinceSpawn = 1e9; lastScore = -1;
   runner.position.x = 0;
@@ -386,6 +462,8 @@ function startGame() {
 function gameOver() {
   state = 'over';
   audio.crash(); audio.musicStop();
+  const fresh = dailyCommit({ dist: Math.floor(dist), coins, score: score(), jumps: runJ, slides: runS, power: runP });
+  $('dg').textContent = fresh.length ? 'Mission complete: ' + fresh.join(' | ') : '';
   playAnim('Idle');
   const s = score();
   $('fd').textContent = Math.floor(dist);
@@ -435,8 +513,8 @@ window.addEventListener('keydown', e => {
   else if (e.code === 'KeyP' || e.code === 'Escape') { if (state === 'pause') resumeGame(); else pauseGame(); }
   else if (e.code === 'Space' || e.code === 'Enter') { if (state === 'pause') resumeGame(); else if (state !== 'play') startGame(); else jump(); }
 });
-function jump() { if (state === 'play' && py <= 0.001) { vy = JUMP_V; slideT = 0; wantSlide = false; audio.jump(); } }
-function slide() { if (state !== 'play') return; if (py > 0.001) { vy = -18; wantSlide = true; } else slideT = SLIDE_LEN; audio.slide(); }
+function jump() { if (state === 'play' && py <= 0.001) { vy = JUMP_V; slideT = 0; wantSlide = false; runJ++; audio.jump(); } }
+function slide() { if (state !== 'play') return; if (py > 0.001) { vy = -18; wantSlide = true; } else slideT = SLIDE_LEN; runS++; audio.slide(); }
 // Swipes fire as soon as the finger moves 30px, so controls feel instant
 let sx = 0, sy = 0, fired = true;
 window.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; fired = false; });
@@ -489,6 +567,8 @@ function loop(now) {
       if (py <= 0) { py = 0; vy = 0; if (wantSlide) { slideT = SLIDE_LEN; wantSlide = false; } }
     }
     if (slideT > 0) slideT -= dt;
+    if (magnetT > 0) magnetT -= dt;
+    if (invT > 0) invT -= dt;
   }
   runner.position.y = py;
   slideK += ((slideT > 0 ? 1 : 0) - slideK) * Math.min(1, dt * 18);
@@ -500,9 +580,21 @@ function loop(now) {
   for (let i = coinList.length - 1; i >= 0; i--) {
     const c = coinList[i];
     c.position.z += step; c.rotation.y += dt * 4;
+    if (magnetT > 0 && state === 'play' && c.position.z > -14 && c.position.z < 1) { // magnet pulls nearby coins in
+      const k = Math.min(1, dt * 9);
+      c.position.x += (runner.position.x - c.position.x) * k; c.position.y += (py + 1.0 - c.position.y) * k;
+    }
     if (state === 'play' && Math.abs(c.position.z) < 0.8 && Math.abs(c.position.x - runner.position.x) < 0.8 && c.position.y > py - 0.3 && c.position.y < top + 0.3) {
       coinList.splice(i, 1); popList.push({ m: c, t: 0 }); coins++; audio.coin(); $('cn').textContent = coins; updScore();
     } else if (c.position.z > 8) { scene.remove(c); coinList.splice(i, 1); }
+  }
+  for (let i = pwList.length - 1; i >= 0; i--) {
+    const m = pwList[i];
+    m.position.z += step; m.rotation.y += dt * 3;
+    if (state === 'play' && Math.abs(m.position.z) < 0.9 && Math.abs(m.position.x - runner.position.x) < 0.9 && m.position.y > py - 0.3 && m.position.y < top + 0.3) {
+      scene.remove(m); pwList.splice(i, 1); runP++; audio.power();
+      if (m.userData.type === 'magnet') magnetT = 8; else shieldOn = true;
+    } else if (m.position.z > 8) { scene.remove(m); pwList.splice(i, 1); }
   }
   for (let i = popList.length - 1; i >= 0; i--) {
     const p = popList[i];
@@ -511,6 +603,10 @@ function loop(now) {
   }
   runner.position.x += (LANES[lane] - runner.position.x) * Math.min(1, dt * 14);
   runner.rotation.z = -(LANES[lane] - runner.position.x) * 0.18;
+  bubble.position.set(runner.position.x, py + 1.0, 0);
+  bubble.visible = shieldOn && (invT <= 0 || (invT * 10 | 0) % 2 === 0);
+  const pwTxt = (magnetT > 0 ? '\u{1F9F2} ' + Math.ceil(magnetT) + 's  ' : '') + (shieldOn ? '\u{1F6E1} ' : '');
+  if (pwTxt !== lastPw) { lastPw = pwTxt; $('pw').textContent = pwTxt; $('pw').style.display = pwTxt ? '' : 'none'; }
   if (state === 'play' || state === 'menu') {
     anim += dt * (state === 'play' ? speed * 0.6 : 6);
     const sw = Math.sin(anim) * 0.9;
@@ -524,7 +620,11 @@ function loop(now) {
     for (const o of obstacles) {
       if (Math.abs(o.position.z) < o.userData.d + 0.25 &&
           Math.abs(o.position.x - runner.position.x) < o.userData.w + 0.35 &&
-          top > o.userData.y0 + 0.05 && py < o.userData.y1 - 0.15) { gameOver(); break; }
+          top > o.userData.y0 + 0.05 && py < o.userData.y1 - 0.15) {
+        if (invT > 0) continue;
+        if (shieldOn) { shieldOn = false; invT = 1.2; shake = 0.35; audio.crash(); scene.remove(o); obstacles.splice(obstacles.indexOf(o), 1); break; }
+        gameOver(); break;
+      }
     }
   }
 
