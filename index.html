@@ -30,6 +30,9 @@ h1{font-size:46px;letter-spacing:3px;text-shadow:0 3px 0 #006b40,0 6px 12px #000
 button{box-shadow:0 5px 0 #0b5f33,0 8px 16px #0008;transition:transform .08s}
 button:active{transform:translateY(3px)}
 @keyframes pulse{to{transform:scale(1.12)}}
+.row{display:flex;gap:8px}
+.sm2{font-size:15px!important;padding:8px 16px!important}
+.on{background:var(--accent)!important;box-shadow:0 4px 0 #0b5f33!important}
 #ctl{position:fixed;right:16px;top:calc(env(safe-area-inset-top,0px) + 64px);display:flex;flex-direction:column;gap:8px;z-index:10}
 .ic{width:46px;height:46px;padding:0;font-size:20px;border-radius:50%;background:rgba(0,0,0,.45);box-shadow:none}
 .alt{background:#334155;font-size:18px;padding:10px 28px;box-shadow:0 4px 0 #1e293b}
@@ -43,12 +46,15 @@ button:active{transform:translateY(3px)}
   <button id="rst" class="alt">RESTART</button>
   <button id="sf" class="alt">Sound: On</button>
   <button id="ms" class="alt">Music: On</button>
+  <button id="qb2" class="alt">Quality: Auto</button>
 </div>
 <div id="menu" class="panel">
   <div class="flag"><i></i><i></i><i></i></div>
   <h1>NAIJA RUSH</h1>
   <p>Run the streets. Beat your best.</p>
   <div class="card">Swipe &larr; &rarr; to change lane, &uarr; to jump, &darr; to slide.<br>Keys: arrows / A D W S, Space to jump.<br>Jump low obstacles, slide under signs, dodge buses, grab coins.</div>
+  <div class="row"><button id="df-easy" class="alt sm2">Easy</button><button id="df-normal" class="alt sm2">Normal</button><button id="df-hard" class="alt sm2">Hard</button></div>
+  <button id="qb" class="alt sm2">Quality: Auto</button>
   <p>Best: <b id="mb">0</b></p>
   <button id="play">PLAY</button>
 </div>
@@ -58,7 +64,9 @@ button:active{transform:translateY(3px)}
   <p>Score: <b id="fs">0</b></p>
   <p><b id="fd">0</b> m &nbsp;·&nbsp; <b id="fc">0</b> coins</p>
   <p>Best: <b id="fb">0</b></p>
+  <p id="rep" class="sm"></p>
   <button id="again">RESTART</button>
+  <button id="tomenu" class="alt">MENU</button>
 </div>
 <script src="vendor/three.min.js"></script>
 <script src="vendor/GLTFLoader.js"></script>
@@ -108,8 +116,20 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 const store = (() => { const mem = {}; return {
   get(k) { try { const v = localStorage.getItem(k); if (v !== null) return v; } catch (e) {} return k in mem ? mem[k] : null; },
   set(k, v) { mem[k] = String(v); try { localStorage.setItem(k, v); } catch (e) {} } }; })();
-let pr = Math.min(window.devicePixelRatio || 1, +store.get('nrPR') || 1.5);
-renderer.setPixelRatio(pr); resize();
+const QN = { auto: 'Auto', low: 'Low', high: 'High' };
+let quality = store.get('nrQ'); if (!QN[quality]) quality = 'auto';
+let pr = 1.5;
+function applyQ() { // Auto starts at 1.5x and self-lowers if FPS < 40; Low = 0.75x; High = up to 2x
+  const dpr = window.devicePixelRatio || 1;
+  pr = quality === 'low' ? 0.75 : quality === 'high' ? Math.min(dpr, 2) : Math.min(dpr, +store.get('nrPR') || 1.5);
+  renderer.setPixelRatio(pr); resize();
+}
+function cycleQ() {
+  quality = quality === 'auto' ? 'low' : quality === 'low' ? 'high' : 'auto';
+  store.set('nrQ', quality); if (quality === 'auto') store.set('nrPR', 1.5);
+  applyQ(); syncUI();
+}
+applyQ();
 // Sound: all generated with WebAudio (no audio files, no licensing). Starts after the first tap/key.
 const audio = (() => {
   let ac = null, mt = null, n = 0;
@@ -277,7 +297,7 @@ function spawnRow() {
   const opts = [prevFree - 1, prevFree, prevFree + 1].filter(l => l >= 0 && l <= 2);
   const free = opts[Math.random() * opts.length | 0];
   let blocked = [0, 1, 2].filter(l => l !== free);
-  if (Math.random() >= Math.min(0.6, Math.max(0, (speed - 16) / 30))) blocked = [blocked[Math.random() * 2 | 0]];
+  if (Math.random() >= Math.min(CFG.twoMax, Math.max(0, (speed - CFG.v0 - 2) / 30))) blocked = [blocked[Math.random() * 2 | 0]];
   prevFree = free;
   for (let k = 0; k < 5; k++) {
     const c = new THREE.Mesh(COIN_G, COIN_M);
@@ -293,7 +313,18 @@ function spawnRow() {
 }
 
 /* ---------- Game state ---------- */
-let state = 'menu', speed = 14, dist = 0, lane = 1, sinceSpawn = 1e9, anim = 0, lastScore = -1;
+// ---- Tuning: edit these numbers to change difficulty (jump/slide physics stay identical so obstacles stay fair)
+const PRESETS = {
+  easy:   { v0: 12, vmax: 28, acc: 0.15, gapMin: 22, gapF: 1.3, twoMax: 0.3 },
+  normal: { v0: 14, vmax: 36, acc: 0.25, gapMin: 18, gapF: 1.1, twoMax: 0.6 },
+  hard:   { v0: 17, vmax: 44, acc: 0.35, gapMin: 16, gapF: 1.0, twoMax: 0.75 }
+};
+const JUMP_V = 11, GRAV = 30, SLIDE_LEN = 0.7;
+let diff = store.get('nrDiff'); if (!PRESETS[diff]) diff = 'normal';
+let CFG = PRESETS[diff];
+const bestKey = () => diff === 'normal' ? 'naijaRushBest' : 'naijaRushBest_' + diff;
+const fpsMode = /[?&]fps=1/.test(location.search);
+let state = 'menu', speed = CFG.v0, dist = 0, lane = 1, sinceSpawn = 1e9, anim = 0, lastScore = -1;
 let coins = 0, py = 0, vy = 0, slideT = 0, wantSlide = false, slideK = 0, shake = 0;
 const popList = [];
 const SKY_A = new THREE.Color(0x9ccfe8), SKY_B = new THREE.Color(0xf4b183), SUN_A = new THREE.Color(0xfff2cc), SUN_B = new THREE.Color(0xffa45c);
@@ -313,7 +344,7 @@ const COIN_M = new THREE.MeshLambertMaterial({ color: 0xfacc15, emissive: 0x553d
 const score = () => Math.floor(dist) + coins * 10;
 const updScore = () => { $('sc').textContent = score(); };
 let best = 0;
-best = +store.get('naijaRushBest') || 0;
+best = +store.get(bestKey()) || 0;
 $('hi').textContent = best;
 $('mb').textContent = best;
 
@@ -322,6 +353,14 @@ function syncUI() {
   $('mu').textContent = (audio.on.sfx || audio.on.mus) ? '\u{1F50A}' : '\u{1F507}';
   $('sf').textContent = 'Sound: ' + (audio.on.sfx ? 'On' : 'Off');
   $('ms').textContent = 'Music: ' + (audio.on.mus ? 'On' : 'Off');
+  $('qb').textContent = $('qb2').textContent = 'Quality: ' + QN[quality];
+  ['easy', 'normal', 'hard'].forEach(k => $('df-' + k).classList[k === diff ? 'add' : 'remove']('on'));
+}
+function setDiff(k) {
+  diff = k; CFG = PRESETS[k]; store.set('nrDiff', k);
+  best = +store.get(bestKey()) || 0;
+  $('hi').textContent = best; $('mb').textContent = best;
+  syncUI();
 }
 function pauseGame() { if (state !== 'play') return; state = 'pause'; audio.musicStop(); $('pause').classList.remove('hidden'); syncUI(); }
 function resumeGame() { if (state !== 'pause') return; state = 'play'; $('pause').classList.add('hidden'); audio.musicStart(); syncUI(); }
@@ -331,8 +370,9 @@ function startGame() {
   coinList.forEach(c => scene.remove(c));
   coinList.length = 0;
   coins = 0; py = 0; vy = 0; slideT = 0; wantSlide = false;
+  sT = sN = wT = wN = 0; wmin = 999;
   $('cn').textContent = 0; $('sc').textContent = 0; $('ds').textContent = 0;
-  speed = 14; dist = 0; lane = 1; prevFree = 1; sinceSpawn = 1e9; lastScore = -1;
+  speed = CFG.v0; dist = 0; lane = 1; prevFree = 1; sinceSpawn = 1e9; lastScore = -1;
   runner.position.x = 0;
   playAnim('Run');
   popList.forEach(p => scene.remove(p.m)); popList.length = 0; shake = 0; updSky();
@@ -353,9 +393,10 @@ function gameOver() {
   const isNew = s > best;
   $('nb').classList[isNew ? 'remove' : 'add']('hidden');
   shake = 0.6;
+  if (fpsMode && sN) $('rep').textContent = 'avg ' + Math.round(sN / sT) + ' fps, worst ' + Math.round(Math.min(wmin, sN / sT)) + ', ' + renderer.info.render.calls + ' calls, quality ' + quality + ' x' + pr.toFixed(2) + ', ' + diff + ', ' + Math.round(dist) + ' m';
   if (isNew) {
     best = s;
-    store.set('naijaRushBest', best);
+    store.set(bestKey(), best);
   }
   $('hi').textContent = best;
   $('mb').textContent = best;
@@ -374,6 +415,14 @@ $('sf').addEventListener('click', () => { audio.set('sfx', !audio.on.sfx); syncU
 $('ms').addEventListener('click', () => { audio.set('mus', !audio.on.mus); syncUI(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
 window.addEventListener('blur', pauseGame);
+['easy', 'normal', 'hard'].forEach(k => $('df-' + k).addEventListener('click', () => setDiff(k)));
+$('qb').addEventListener('click', cycleQ);
+$('qb2').addEventListener('click', cycleQ);
+$('tomenu').addEventListener('click', () => {
+  state = 'menu'; slideT = 0; py = 0; vy = 0;
+  $('over').classList.add('hidden'); $('menu').classList.remove('hidden');
+  playAnim('Idle'); syncUI();
+});
 syncUI();
 
 /* ---------- Input ---------- */
@@ -386,8 +435,8 @@ window.addEventListener('keydown', e => {
   else if (e.code === 'KeyP' || e.code === 'Escape') { if (state === 'pause') resumeGame(); else pauseGame(); }
   else if (e.code === 'Space' || e.code === 'Enter') { if (state === 'pause') resumeGame(); else if (state !== 'play') startGame(); else jump(); }
 });
-function jump() { if (state === 'play' && py <= 0.001) { vy = 11; slideT = 0; wantSlide = false; audio.jump(); } }
-function slide() { if (state !== 'play') return; if (py > 0.001) { vy = -18; wantSlide = true; } else slideT = 0.7; audio.slide(); }
+function jump() { if (state === 'play' && py <= 0.001) { vy = JUMP_V; slideT = 0; wantSlide = false; audio.jump(); } }
+function slide() { if (state !== 'play') return; if (py > 0.001) { vy = -18; wantSlide = true; } else slideT = SLIDE_LEN; audio.slide(); }
 // Swipes fire as soon as the finger moves 30px, so controls feel instant
 let sx = 0, sy = 0, fired = true;
 window.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; fired = false; });
@@ -402,25 +451,28 @@ window.addEventListener('pointermove', e => {
 });
 
 /* ---------- Main loop ---------- */
-let last = performance.now(), fAcc = 0, fN = 0;
+let last = performance.now(), fAcc = 0, fN = 0, sT = 0, sN = 0, wT = 0, wN = 0, wmin = 999;
 function loop(now) {
   requestAnimationFrame(loop);
   const raw = (now - last) / 1000, dt = Math.min(raw, 0.05);
   last = now;
-  if (state === 'play' && raw < 0.5) { fAcc += raw; fN++; }
+  if (state === 'play' && raw < 0.5) {
+    fAcc += raw; fN++; sT += raw; sN++; wT += raw; wN++;
+    if (wT >= 1) { wmin = Math.min(wmin, wN / wT); wT = 0; wN = 0; }
+  }
   if (fAcc > 2.5) { // adaptive quality: lower resolution if average FPS < 40
-    if (fN / fAcc < 40 && pr > 0.75) { pr = Math.max(0.75, pr - 0.25); renderer.setPixelRatio(pr); store.set('nrPR', pr); resize(); }
+    if (quality === 'auto' && fN / fAcc < 40 && pr > 0.75) { pr = Math.max(0.75, pr - 0.25); renderer.setPixelRatio(pr); store.set('nrPR', pr); resize(); }
     fAcc = 0; fN = 0;
   }
   const v = state === 'play' ? speed : state === 'menu' ? 6 : 0;
   const step = v * dt;
 
   if (state === 'play') {
-    speed = Math.min(36, speed + 0.25 * dt);
+    speed = Math.min(CFG.vmax, speed + CFG.acc * dt);
     dist += step;
     updSky();
     sinceSpawn += step;
-    if (sinceSpawn >= Math.max(18, speed * 1.1)) { spawnRow(); sinceSpawn = 0; }
+    if (sinceSpawn >= Math.max(CFG.gapMin, speed * CFG.gapF)) { spawnRow(); sinceSpawn = 0; }
     const s = Math.floor(dist);
     if (s !== lastScore) { lastScore = s; $('ds').textContent = s; updScore(); }
   }
@@ -433,8 +485,8 @@ function loop(now) {
 
   if (state === 'play') {
     if (py > 0 || vy > 0) {
-      vy -= 30 * dt; py += vy * dt;
-      if (py <= 0) { py = 0; vy = 0; if (wantSlide) { slideT = 0.7; wantSlide = false; } }
+      vy -= GRAV * dt; py += vy * dt;
+      if (py <= 0) { py = 0; vy = 0; if (wantSlide) { slideT = SLIDE_LEN; wantSlide = false; } }
     }
     if (slideT > 0) slideT -= dt;
   }
@@ -481,7 +533,7 @@ function loop(now) {
   camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake;
   shake = Math.max(0, shake - dt * 1.6);
   camera.lookAt(runner.position.x * 0.4, 1.4, -10);
-  const tf = baseFov + (state === 'play' ? (speed - 14) * 0.25 : 0);
+  const tf = baseFov + (state === 'play' ? (speed - CFG.v0) * 0.25 : 0);
   if (Math.abs(tf - camera.fov) > 0.05) { camera.fov += (tf - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
   renderer.render(scene, camera);
   if (window.__fps) window.__fps();
